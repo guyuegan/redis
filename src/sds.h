@@ -40,7 +40,11 @@ extern const char *SDS_NOINIT;
 #include <stdarg.h>
 #include <stdint.h>
 
-typedef char *sds;
+typedef char *sds; //sds(simple dynamic string)就是char *的别名
+
+/* 3.2
+ *
+ */
 
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
  * However is here to document the layout of type 5 SDS strings. */
