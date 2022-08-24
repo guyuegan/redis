@@ -40,10 +40,26 @@ extern const char *SDS_NOINIT;
 #include <stdarg.h>
 #include <stdint.h>
 
+/* sds比原生string的优势：
+   1) 不以'\0'作为终止符，保证了二进制安全 //先满足需求，保证安全
+   2) 有len字段，O(1)获取字符串长度 //再优化性能
+   3) 兼容C处理字符串的函数 //后保证兼容
+*/
+
+
 typedef char *sds; //sds(simple dynamic string)就是char *的别名
 
-/* 3.2
- *
+/* 3.2之前的sds
+
+ struct sdshdr {
+    unsigned int len; //已使用
+    unsigned int free; //空闲
+    char buf[]; //存储空间
+ };
+
+ 由于redis中大量使用字符串，如果每个字符串都用int len, int free这样的头结构，
+ 对于短字符来说，会造成不小的空间浪费，所以加个类型，针对各种长度字符分类设计
+
  */
 
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
