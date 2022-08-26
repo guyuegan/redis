@@ -73,19 +73,22 @@ static inline char sdsReqType(size_t string_size) {
 #endif
 }
 
-/* Create a new sds string with the content specified by the 'init' pointer
- * and 'initlen'.
- * If NULL is used for 'init' the string is initialized with zero bytes.
- * If SDS_NOINIT is used, the buffer is left uninitialized;
+int main() {
+    sds s = sdsnew("abc \0 123");
+    printf("%s", s)
+    return 0;
+}
+
+/* 使用“init”指针和“initlen”指定的内容创建一个新的 sds 字符串。
+ * 如果NULL用于“init”，则字符串初始化为零字节。如果使用 SDS_NOINIT，则缓冲区不初始化；
  *
- * The string is always null-termined (all the sds strings are, always) so
- * even if you create an sds string with:
+ * 该字符串始终以空值结尾（所有 sds 字符串始终都是），即使您使用以下命令创建 sds 字符串
  *
  * mystring = sdsnewlen("abc",3);
  *
- * You can print the string with printf() as there is an implicit \0 at the
- * end of the string. However the string is binary safe and can contain
- * \0 characters in the middle, as the length is stored in the sds header. */
+ * 您可以使用 printf() 打印字符串，因为字符串末尾有一个隐含的 \0。
+ * 但是该字符串是二进制安全的，并且可以在中间包含 \0 字符，因为长度存储在 sds 标头中。
+ */
 sds sdsnewlen(const void *init, size_t initlen) {
     void *sh;
     sds s;
@@ -151,7 +154,7 @@ sds sdsempty(void) {
     return sdsnewlen("",0);
 }
 
-/* Create a new sds string starting from a null terminated C string. */
+/* 用以空终止的 C 字符串，创建一个新的 sds 字符串. */
 sds sdsnew(const char *init) {
     size_t initlen = (init == NULL) ? 0 : strlen(init);
     return sdsnewlen(init, initlen);

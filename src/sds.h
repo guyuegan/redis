@@ -33,7 +33,7 @@
 #ifndef __SDS_H
 #define __SDS_H
 
-#define SDS_MAX_PREALLOC (1024*1024)
+#define SDS_MAX_PREALLOC (1024*1024) //1MB
 extern const char *SDS_NOINIT;
 
 #include <sys/types.h>
@@ -57,22 +57,29 @@ typedef char *sds; //sds(simple dynamic string)就是char *的别名
     char buf[]; //存储空间
  };
 
- 由于redis中大量使用字符串，如果每个字符串都用int len, int free这样的头结构，
- 对于短字符来说，会造成不小的空间浪费，所以加个类型，针对各种长度字符分类设计
-
+ 由于redis中大量使用字符串，如果每个字符串都用len, free这样的头结构（4+4 or 8+8byte），
+ 对于短字符来说，会造成不小的空间浪费，所以加个类型，针对各种长度字符分类设计（如果是我就加个type字段），减少内存浪费
+ redis也是差不多思路，加了字符串头结构，用flags字段表示类型
  */
 
-/* Note: sdshdr5 is never used, we just access the flags byte directly.
- * However is here to document the layout of type 5 SDS strings. */
+/* 注意：从不使用 sdshdr5，我们只是直接访问标志字节。
+ * 然而，这里是为了记录类型 5 SDS 字符串的布局。 */
+
+// 结构体为什么要4字节对齐: https://blog.csdn.net/wordwarwordwar/article/details/79864996
+// __attribute__ ((__packed__))关键字: 1)节省空间，2)方便指针移动：已知buf求hdr, 或已知hdr求buf
+// https://blog.csdn.net/u012308586/article/details/90751116 ; 有
+
+// sdshdr5是针对短字符串的进一步优化了：flags除了前3位用来表示类型，剩余5位用来表示长度(长度最大32byte)
+// 这种一个byte拆成两部分的优化，每个短字符起码节省了2byte（对比sdshdr8）
 struct __attribute__ ((__packed__)) sdshdr5 {
-    unsigned char flags; /* 3 lsb of type, and 5 msb of string length */
+    unsigned char flags; /* 一个byte拆成两部分：低3位存类型，高5位存字符串长度（字节序：从右到左） */
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr8 {
-    uint8_t len; /* used */
-    uint8_t alloc; /* excluding the header and null terminator */
-    unsigned char flags; /* 3 lsb of type, 5 unused bits */
-    char buf[];
+    uint8_t len; /* 已使用空间（字符串长度） */
+    uint8_t alloc; /* 总的空间容量（不包括标头和空终止符） */
+    unsigned char flags; /* 低3位存类型, 高5位预留 */
+    char buf[]; //柔性数组
 };
 struct __attribute__ ((__packed__)) sdshdr16 {
     uint16_t len; /* used */
@@ -93,22 +100,32 @@ struct __attribute__ ((__packed__)) sdshdr64 {
     char buf[];
 };
 
-#define SDS_TYPE_5  0
-#define SDS_TYPE_8  1
-#define SDS_TYPE_16 2
-#define SDS_TYPE_32 3
-#define SDS_TYPE_64 4
-#define SDS_TYPE_MASK 7
-#define SDS_TYPE_BITS 3
+#define SDS_TYPE_5  0 //0000 0000
+#define SDS_TYPE_8  1 //0000 0001
+#define SDS_TYPE_16 2 //0000 0010
+#define SDS_TYPE_32 3 //0000 0011
+#define SDS_TYPE_64 4 //0000 0100
+#define SDS_TYPE_MASK 7 //0000 0111
+#define SDS_TYPE_BITS 3 //flags字段中有几个bit用来表示类型
+
+// todo  SDS_HDR_VAR 和 SDS_HDR 啥差别
+
+// 判断具体的类型，然后指针计算 SDS_HDR_VAR(8,s) 等价于
+// struct sdshdr8 *sh = (void*)((s)-(sizeof(struct sdshdr8))); 就是让s找到结构体的地址。
 #define SDS_HDR_VAR(T,s) struct sdshdr##T *sh = (void*)((s)-(sizeof(struct sdshdr##T)));
+
+// "##"被称为连接符，它是一种预处理运算符， 用来把两个语言符号(Token)组合成单个语言符号。比如SDS_HDR(8, s)，根据宏定义展开是：
+// ((struct sdshdr8 *)((s)-(sizeof(struct sdshdr8))))
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
+
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
+//获取sds长度
 static inline size_t sdslen(const sds s) {
-    unsigned char flags = s[-1];
+    unsigned char flags = s[-1]; //buf往前移动1byte,定位到flags开始地址
     switch(flags&SDS_TYPE_MASK) {
         case SDS_TYPE_5:
-            return SDS_TYPE_5_LEN(flags);
+            return SDS_TYPE_5_LEN(flags); //sdshdr5没有单独len字段，特殊处理
         case SDS_TYPE_8:
             return SDS_HDR(8,s)->len;
         case SDS_TYPE_16:
@@ -121,9 +138,10 @@ static inline size_t sdslen(const sds s) {
     return 0;
 }
 
+// 获取sds剩余空间
 static inline size_t sdsavail(const sds s) {
     unsigned char flags = s[-1];
-    switch(flags&SDS_TYPE_MASK) {
+    switch(flags&SDS_TYPE_MASK) { //case还要花括号？
         case SDS_TYPE_5: {
             return 0;
         }
@@ -147,6 +165,7 @@ static inline size_t sdsavail(const sds s) {
     return 0;
 }
 
+//sds更新长度
 static inline void sdssetlen(sds s, size_t newlen) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
@@ -171,6 +190,7 @@ static inline void sdssetlen(sds s, size_t newlen) {
     }
 }
 
+//sds增加长度
 static inline void sdsinclen(sds s, size_t inc) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
@@ -196,6 +216,7 @@ static inline void sdsinclen(sds s, size_t inc) {
     }
 }
 
+//获取sds空间总容量
 /* sdsalloc() = sdsavail() + sdslen() */
 static inline size_t sdsalloc(const sds s) {
     unsigned char flags = s[-1];
@@ -214,6 +235,7 @@ static inline size_t sdsalloc(const sds s) {
     return 0;
 }
 
+//sds更新空间总容量
 static inline void sdssetalloc(sds s, size_t newlen) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
