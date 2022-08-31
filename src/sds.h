@@ -43,7 +43,8 @@ extern const char *SDS_NOINIT;
 /* sds比原生string的优势：
    1) 不以'\0'作为终止符，保证了二进制安全 //先满足需求，保证安全
    2) 有len字段，O(1)获取字符串长度 //再优化性能
-   3) 兼容C处理字符串的函数 //后保证兼容
+   3) 预分配内存，惰性释放，自动扩容，防止溢出 //再扩展功能
+   4) 兼容C处理字符串的函数 //后保证兼容
 */
 
 
@@ -138,7 +139,7 @@ static inline size_t sdslen(const sds s) {
     return 0;
 }
 
-// 获取sds剩余空间
+// 获取sds剩余空间（申请总量-当前长度）
 static inline size_t sdsavail(const sds s) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) { //case还要花括号？
