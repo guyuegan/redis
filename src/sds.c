@@ -204,7 +204,7 @@ sds sdsnewlen(const void *init, size_t initlen) {
         }
     }
     if (initlen && init) //initLen不为0 且 init不为NULL?
-        memcpy(s, init, initlen);
+        memcpy(s, init, initlen); //(根据长度拷贝，保证二进制安全)
     s[initlen] = '\0'; //末位补0
     return s;
 
@@ -298,7 +298,7 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
         /* 由于 header 大小发生变化，需要将字符串向前移动，并且不能使用 realloc */
         newsh = s_malloc(hdrlen+newlen+1);
         if (newsh == NULL) return NULL;
-        memcpy((char*)newsh+hdrlen, s, len+1); //老buf拷贝到新buf
+        memcpy((char*)newsh+hdrlen, s, len+1); //老buf拷贝到新buf(根据长度拷贝，保证二进制安全)
         s_free(sh);
         s = (char*)newsh+hdrlen; //s指向新的buf空间
         s[-1] = type; //更新type(flags字段)
@@ -334,7 +334,7 @@ sds sdsRemoveFreeSpace(sds s) {
     } else {
         newsh = s_malloc(hdrlen+len+1);
         if (newsh == NULL) return NULL;
-        memcpy((char*)newsh+hdrlen, s, len+1);
+        memcpy((char*)newsh+hdrlen, s, len+1); //(根据长度拷贝，保证二进制安全)
         s_free(sh); //释放老结构体
         s = (char*)newsh+hdrlen; //s指向新的buf
         s[-1] = type;
@@ -451,7 +451,7 @@ sds sdscatlen(sds s, const void *t, size_t len) {
 
     s = sdsMakeRoomFor(s,len); //sdsMakeRoomFor确保在拼接前，有足够长度
     if (s == NULL) return NULL; //申请不到空间
-    memcpy(s+curlen, t, len); //t拷贝到s末尾
+    memcpy(s+curlen, t, len); //t拷贝到s末尾(根据长度拷贝，保证二进制安全)
     sdssetlen(s, curlen+len); //更新s长度
     s[curlen+len] = '\0'; //加上结束符
     return s;
@@ -478,7 +478,7 @@ sds sdscpylen(sds s, const char *t, size_t len) {
         s = sdsMakeRoomFor(s,len-sdslen(s));
         if (s == NULL) return NULL;
     }
-    memcpy(s, t, len);
+    memcpy(s, t, len); // (根据长度拷贝，保证二进制安全)
     s[len] = '\0';
     sdssetlen(s, len);
     return s;
@@ -821,7 +821,7 @@ void sdstoupper(sds s) {
     for (j = 0; j < len; j++) s[j] = toupper(s[j]);
 }
 
-/* Compare two sds strings s1 and s2 with memcmp().
+/* 用 memcmp() 比较两个 sds 字符串 s1 和 s2.
  *
  * Return value:
  *
@@ -829,9 +829,7 @@ void sdstoupper(sds s) {
  *     negative if s1 < s2.
  *     0 if s1 and s2 are exactly the same binary string.
  *
- * If two strings share exactly the same prefix, but one of the two has
- * additional characters, the longer string is considered to be greater than
- * the smaller one. */
+ * 如果两个字符串有相同的前缀，但其中一个有附加字符，则认为较长的字符串大于较小的字符串。 */
 int sdscmp(const sds s1, const sds s2) {
     size_t l1, l2, minlen;
     int cmp;

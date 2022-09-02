@@ -348,7 +348,7 @@ typedef long long ustime_t; /* microsecond time type. */
 /* Anti-warning macro... */
 #define UNUSED(V) ((void) V)
 
-#define ZSKIPLIST_MAXLEVEL 64 /* Should be enough for 2^64 elements */
+#define ZSKIPLIST_MAXLEVEL 64 /* 对于 2^64 个元素应该足够了 */
 #define ZSKIPLIST_P 0.25      /* Skiplist P = 1/4 */
 
 /* Append only defines */
@@ -808,21 +808,24 @@ struct sharedObjectsStruct {
     sds minstring, maxstring;
 };
 
-/* ZSETs use a specialized version of Skiplists */
-typedef struct zskiplistNode {
-    sds ele;
-    double score;
-    struct zskiplistNode *backward;
+// 柔性数组：https://www.cnblogs.com/veis/p/7073076.html#:~:text=1%E3%80%81%E4%BB%80%E4%B9%88%E6%98%AF%E6%9F%94%E6%80%A7%E6%95%B0%E7%BB%84%EF%BC%9F%20%E6%9F%94%E6%80%A7%E6%95%B0%E7%BB%84%E6%97%A2%E6%95%B0%E7%BB%84%E5%A4%A7%E5%B0%8F%E5%BE%85%E5%AE%9A%E7%9A%84%E6%95%B0%E7%BB%84%EF%BC%8C%20C%E8%AF%AD%E8%A8%80%E4%B8%AD%E7%BB%93%E6%9E%84%E4%BD%93%E7%9A%84%E6%9C%80%E5%90%8E%E4%B8%80%E4%B8%AA%E5%85%83%E7%B4%A0%E5%8F%AF%E4%BB%A5%E6%98%AF%E5%A4%A7%E5%B0%8F%E6%9C%AA%E7%9F%A5%E7%9A%84%E6%95%B0%E7%BB%84%EF%BC%8C%E4%B9%9F%E5%B0%B1%E6%98%AF%E6%89%80%E8%B0%93%E7%9A%840%E9%95%BF%E5%BA%A6%EF%BC%8C%E6%89%80%E4%BB%A5%E6%88%91%E4%BB%AC%E5%8F%AF%E4%BB%A5%E7%94%A8%E7%BB%93%E6%9E%84%E4%BD%93%E6%9D%A5%E5%88%9B%E5%BB%BA%E6%9F%94%E6%80%A7%E6%95%B0%E7%BB%84%E3%80%82,2%E3%80%81%E6%9F%94%E6%80%A7%E6%95%B0%E7%BB%84%E6%9C%89%E4%BB%80%E4%B9%88%E7%94%A8%E9%80%94%20%EF%BC%9F%20%E5%AE%83%E7%9A%84%E4%B8%BB%E8%A6%81%E7%94%A8%E9%80%94%E6%98%AF%E4%B8%BA%E4%BA%86%E6%BB%A1%E8%B6%B3%E9%9C%80%E8%A6%81%E5%8F%98%E9%95%BF%E5%BA%A6%E7%9A%84%E7%BB%93%E6%9E%84%E4%BD%93%EF%BC%8C%E4%B8%BA%E4%BA%86%E8%A7%A3%E5%86%B3%E4%BD%BF%E7%94%A8%E6%95%B0%E7%BB%84%E6%97%B6%E5%86%85%E5%AD%98%E7%9A%84%E5%86%97%E4%BD%99%E5%92%8C%E6%95%B0%E7%BB%84%E7%9A%84%E8%B6%8A%E7%95%8C%E9%97%AE%E9%A2%98%E3%80%82
+/* ZSET(有序集合) 使用专用版本的 Skiplist(跳表) */
+
+// span: https://blog.csdn.net/qq_19648191/article/details/85381769
+typedef struct zskiplistNode { //跳表结点结构
+    sds ele; //元素
+    double score; //元素分值（排序优先级）
+    struct zskiplistNode *backward; //回退指针
     struct zskiplistLevel {
         struct zskiplistNode *forward;
-        unsigned long span;
-    } level[];
+        unsigned long span; //和forward所指结点的跨度
+    } level[]; //柔性数组：存放不定长索引层；每个索引层=forward+span
 } zskiplistNode;
 
-typedef struct zskiplist {
-    struct zskiplistNode *header, *tail;
-    unsigned long length;
-    int level;
+typedef struct zskiplist { //跳表结构
+    struct zskiplistNode *header, *tail; //头尾结点指针（头结点是哨兵结点）
+    unsigned long length; //跳表结点数（不包括头结点）
+    int level; //链表结点最大高度（不包括头结点）
 } zskiplist;
 
 typedef struct zset {
