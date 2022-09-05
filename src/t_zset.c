@@ -32,29 +32,26 @@
  * Sorted set API
  *----------------------------------------------------------------------------*/
 
-/* ZSETs are ordered sets using two data structures to hold the same elements
- * in order to get O(log(N)) INSERT and REMOVE operations into a sorted
- * data structure.
+/* ZSET是使用两个数据结构来保存相同元素的有序集合，
+ * 以便实现 O(log(N))的 INSERT 和 REMOVE 操作
  *
- * The elements are added to a hash table mapping Redis objects to scores.
- * At the same time the elements are added to a skip list mapping scores
- * to Redis objects (so objects are sorted by scores in this "view").
+ * 这些元素被添加到将 Redis 对象映射到分数的哈希表中。
+ * 同时，元素被添加到将分数映射到 Redis 对象的跳表中（因此对象在此“视图”中按分数排序）。
  *
- * Note that the SDS string representing the element is the same in both
- * the hash table and skiplist in order to save memory. What we do in order
- * to manage the shared SDS string more easily is to free the SDS string
- * only in zslFreeNode(). The dictionary has no value free method set.
- * So we should always remove an element from the dictionary, and later from
- * the skiplist.
+ * 请注意，表示元素的 SDS 字符串在哈希表和跳过列表中都是相同的，以节省内存。
+ * 为了更轻松地管理共享 SDS 字符串，我们所做的是仅在 zslFreeNode() 中释放 SDS 字符串。
+ * 字典没有设置无值方法。所以我们应该总是从字典中删除一个元素，然后从跳过列表中删除
  *
- * This skiplist implementation is almost a C translation of the original
- * algorithm described by William Pugh in "Skip Lists: A Probabilistic
- * Alternative to Balanced Trees", modified in three ways:
- * a) this implementation allows for repeated scores.
- * b) the comparison is not just by key (our 'score') but by satellite data.
- * c) there is a back pointer, so it's a doubly linked list with the back
- * pointers being only at "level 1". This allows to traverse the list
- * from tail to head, useful for ZREVRANGE. */
+ * 这个跳表实现几乎是William Pugh在
+ * “Skip Lists: A Probabilistic Alternative to Balanced Trees”论文
+ * 中描述的原始算法的C语言翻译，在三个方面进行了修改
+ * a) 允许重复score
+ * b) 比较不仅通过关键（我们的“分数”），而且通过卫星数据(satellite data).
+ * c) 有一个后退指针bw，所以它是一个双向链表，bw仅位于“level 1”（数据层）。
+ *    这允许从尾到头遍历列表，这对 ZREVRANGE 很有用。 */
+
+// https://www.hegongshan.com/2021/10/14/skiplist/
+// https://zhuanlan.zhihu.com/p/109946103
 
 #include "server.h"
 #include <math.h>
@@ -75,25 +72,28 @@ zskiplistNode *zslCreateNode(int level, double score, sds ele) {
     return zn;
 }
 
-/* Create a new skiplist. */
+/* 创建一个新的跳表 */
 zskiplist *zslCreate(void) {
     int j;
     zskiplist *zsl;
 
     zsl = zmalloc(sizeof(*zsl));
-    zsl->level = 1;
-    zsl->length = 0;
-    zsl->header = zslCreateNode(ZSKIPLIST_MAXLEVEL,0,NULL);
-    for (j = 0; j < ZSKIPLIST_MAXLEVEL; j++) {
+    zsl->level = 1; //空跳表，层级1（数据层）
+    zsl->length = 0; //空跳表，高度0
+    //头结点score为0，说明不会有score是负的情况（后面的结点score都要大于头结点）
+    //判断是否头结点:1)bw==NULL(没有前一个结点)  2)ele==NULL(没有业务数据)
+    zsl->header = zslCreateNode(ZSKIPLIST_MAXLEVEL,0,NULL); //空跳表，头结点：{score:0, level: 64, ele: NULL}
+    for (j = 0; j < ZSKIPLIST_MAXLEVEL; j++) { //空跳表，头结点索引层：{forward:NULL, span: 0}
         zsl->header->level[j].forward = NULL;
         zsl->header->level[j].span = 0;
     }
-    zsl->header->backward = NULL;
-    zsl->tail = NULL;
+    zsl->header->backward = NULL; //空跳表，后退指针NULL
+    zsl->tail = NULL; //空跳表，尾结点NULL
     return zsl;
 }
 
 /* 释放指定的跳表节点。元素的引用 SDS 字符串表示也被释放，除非在调用此函数之前将 node->ele 设置为 NULL */
+// todo 要先node->ele = NULL, sdsfree才会真正释放？
 void zslFreeNode(zskiplistNode *node) {
     sdsfree(node->ele);
     zfree(node);
@@ -126,6 +126,7 @@ int zslRandomLevel(void) {
 
 // span: https://blog.csdn.net/qq_19648191/article/details/85381769
 /* 在跳表中插入一个新节点。假设元素不存在（由调用者保证）。跳表拥有传递的 SDS 字符串“ele”的所有权 */
+// 阅读小技巧：先不看span, rank; 整体就是下楼梯
 zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x; //update记录每层需要更新的结点（插入结点的前一个结点）
     unsigned int rank[ZSKIPLIST_MAXLEVEL]; //rank记录每层更新结点和头结点的跨度（理解成在跳表中的排序）
@@ -148,6 +149,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
         }
         update[i] = x; //往下一层跳之前，记住当前层要更新的结点（即遍历到的最后一个结点）
     }
+    // todo 为啥要保证ele不同，因为score可以相同，删除的时候要通过ele来区分不同: zslDelete
     /* 我们假设元素不在里面，因为我们允许重复的分数，重新插入相同的元素永远不会发生，
      * 因为 zslInsert() 的调用者应该在哈希表中测试元素是否已经在里面。 */
     level = zslRandomLevel();
@@ -250,23 +252,20 @@ int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node) {
     return 0; /* 返回0: 表示没有查找到; 返回1: 表示删除成功 */
 }
 
-/* Update the score of an elmenent inside the sorted set skiplist.
- * Note that the element must exist and must match 'score'.
- * This function does not update the score in the hash table side, the
- * caller should take care of it.
+/* 更新排序集跳表中的元素的分数。请注意，该元素必须存在并且必须匹配“分数”。
+ * 这个函数不会更新哈希表端的分数，调用者应该注意它
  *
  * Note that this function attempts to just update the node, in case after
  * the score update, the node would be exactly at the same position.
  * Otherwise the skiplist is modified by removing and re-adding a new
- * element, which is more costly.
+ * element, which is more costly.(没明白)
  *
- * The function returns the updated element skiplist node pointer. */
+ * 该函数返回更新后的元素：跳表节点指针 */
 zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double newscore) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     int i;
 
-    /* We need to seek to element to update to start: this is useful anyway,
-     * we'll have to update or remove it. */
+    /* 我们需要寻找要更新的元素才能开始：无论如何这很有用，我们必须更新或删除它 */
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
         while (x->level[i].forward &&
@@ -279,27 +278,24 @@ zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double n
         update[i] = x;
     }
 
-    /* Jump to our element: note that this function assumes that the
-     * element with the matching score exists. */
+    /* 跳转到我们的元素：请注意，此函数假定存在具有匹配分数的元素 */
     x = x->level[0].forward;
     serverAssert(x && curscore == x->score && sdscmp(x->ele,ele) == 0);
 
-    /* If the node, after the score update, would be still exactly
-     * at the same position, we can just update the score without
-     * actually removing and re-inserting the element in the skiplist. */
-    if ((x->backward == NULL || x->backward->score < newscore) &&
-        (x->level[0].forward == NULL || x->level[0].forward->score > newscore))
+    /* 如果节点在分数更新后仍然完全位于同一位置，我们可以只更新分数，而无需实际删除和重新插入*/
+    // 新的分值还是介于前后结点中间
+    if ((x->backward == NULL || x->backward->score < newscore) && //头结点（没有前一个结点）或 前一个结点score < 新score
+        (x->level[0].forward == NULL || x->level[0].forward->score > newscore)) //尾结点（没有下一个结点）或 下一个结点score > 新score
     {
         x->score = newscore;
         return x;
     }
 
-    /* No way to reuse the old node: we need to remove and insert a new
-     * one at a different place. */
+    /* 没有办法重用旧节点：我们需要在不同的地方删除并插入一个新节点 */
+    // todo 优化点：把这个元素删除再插入，需要经过两次路径搜索，可以优化成一次，不过代码没那么整洁了
     zslDeleteNode(zsl, x, update);
     zskiplistNode *newnode = zslInsert(zsl,newscore,x->ele);
-    /* We reused the old node x->ele SDS string, free the node now
-     * since zslInsert created a new one. */
+    /* 我们重用了旧节点 x->ele SDS 字符串，现在释放节点，因为 zslInsert 创建了一个新节点 */
     x->ele = NULL;
     zslFreeNode(x);
     return newnode;
@@ -475,10 +471,8 @@ unsigned long zslDeleteRangeByRank(zskiplist *zsl, unsigned int start, unsigned 
     return removed;
 }
 
-/* Find the rank for an element by both score and key.
- * Returns 0 when the element cannot be found, rank otherwise.
- * Note that the rank is 1-based due to the span of zsl->header to the
- * first element. */
+/* 通过分数和键查找元素的排名。找不到元素时返回 0，否则排名。
+ * 请注意，由于 zsl->header 到第一个元素的跨度，排名是从 1 开始的 */
 unsigned long zslGetRank(zskiplist *zsl, double score, sds ele) {
     zskiplistNode *x;
     unsigned long rank = 0;
@@ -490,11 +484,11 @@ unsigned long zslGetRank(zskiplist *zsl, double score, sds ele) {
             (x->level[i].forward->score < score ||
                 (x->level[i].forward->score == score &&
                 sdscmp(x->level[i].forward->ele,ele) <= 0))) {
-            rank += x->level[i].span;
+            rank += x->level[i].span; //下楼梯过程中，把span累加，最终就是排名（和头结点的距离）
             x = x->level[i].forward;
         }
 
-        /* x might be equal to zsl->header, so test if obj is non-NULL */
+        /* x 可能是头结点，所以测试 obj 是否为非 NULL */
         if (x->ele && sdscmp(x->ele,ele) == 0) {
             return rank;
         }
