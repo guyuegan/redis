@@ -1,38 +1,28 @@
-/* The ziplist is a specially encoded dually linked list that is designed
- * to be very memory efficient. It stores both strings and integer values,
- * where integers are encoded as actual integers instead of a series of
- * characters. It allows push and pop operations on either side of the list
- * in O(1) time. However, because every operation requires a reallocation of
- * the memory used by the ziplist, the actual complexity is related to the
- * amount of memory used by the ziplist.
+/* ziplist 是一个经过特殊编码的双链表，旨在提高内存效率。
+ * 它存储字符串和整数值，其中整数被编码为实际整数而不是一系列字符。
+ * 它允许在 O(1) 时间内对列表的任一侧进行push和pop操作。
+ * 但是，由于每个操作都需要重新分配 ziplist 使用的内存，因此实际复杂度与 ziplist 使用的内存量有关。
  *
  * ----------------------------------------------------------------------------
  *
  * ZIPLIST OVERALL LAYOUT
  * ======================
  *
- * The general layout of the ziplist is as follows:
+ * ziplist的大体布局如下:
  *
  * <zlbytes> <zltail> <zllen> <entry> <entry> ... <entry> <zlend>
  *
- * NOTE: all fields are stored in little endian, if not specified otherwise.
+ * 注意：如果没有另外指定，所有字段都以小端存储。
  *
- * <uint32_t zlbytes> is an unsigned integer to hold the number of bytes that
- * the ziplist occupies, including the four bytes of the zlbytes field itself.
- * This value needs to be stored to be able to resize the entire structure
- * without the need to traverse it first.
+ *<uint32_t zlbytes> 用于保存 ziplist 占用的字节数，包括 zlbytes 字段本身的四个字节。
+ * 需要存储此值才能调整整个结构的大小，而无需先遍历它。
  *
- * <uint32_t zltail> is the offset to the last entry in the list. This allows
- * a pop operation on the far side of the list without the need for full
- * traversal.
+ * <uint32_t zltail> 是尾节点和列表起始地址距离。可以快速定位尾节点，而无需遍历。
  *
- * <uint16_t zllen> is the number of entries. When there are more than
- * 2^16-2 entries, this value is set to 2^16-1 and we need to traverse the
- * entire list to know how many items it holds.
+ * <uint16_t zllen> 是节点数。当节点超过 2^16-2(65536-2) 时，该值设置为 2^16-1(65536-1)，我们需要遍历整个列表才能知道它包含多少项。
+ * // 即超过65535就不是准确的长度了，需要通过遍历计算
  *
- * <uint8_t zlend> is a special entry representing the end of the ziplist.
- * Is encoded as a single byte equal to 255. No other normal entry starts
- * with a byte set to the value of 255.
+ * <uint8_t zlend> 是一个特殊的节点，表示列表的结尾。被编码为全1的单个字节（255）。其他数据节点都不会以255的字节开头。
  *
  * ZIPLIST ENTRIES
  * ===============
@@ -43,12 +33,13 @@
  * provided. It represents the entry type, integer or string, and in the case
  * of strings it also represents the length of the string payload.
  * So a complete entry is stored like this:
+ * ziplist 中的每个节点前缀都包含两条部分元数据。
+ * 1）prevlen：前一个节点的长度，以便能够从后到前遍历列表。
+ * 2）encoding：节点类型编码（整数或字符串），如果是字符串，encoding还包含字符串长度。
  *
  * <prevlen> <encoding> <entry-data>
  *
- * Sometimes the encoding represents the entry itself, like for small integers
- * as we'll see later. In such a case the <entry-data> part is missing, and we
- * could have just:
+ * 有时encoding代表节点本身，就像我们稍后会看到的小整数一样。这种情况下则没有<entry-data>部分：
  *
  * <prevlen> <encoding>
  *
