@@ -43,43 +43,28 @@
  *
  * <prevlen> <encoding>
  *
- * The length of the previous entry, <prevlen>, is encoded in the following way:
- * If this length is smaller than 254 bytes, it will only consume a single
- * byte representing the length as an unsinged 8 bit integer. When the length
- * is greater than or equal to 254, it will consume 5 bytes. The first byte is
- * set to 254 (FE) to indicate a larger value is following. The remaining 4
- * bytes take the length of the previous entry as value.
+ * 前一节点的长度<prevlen>:
+ * 长度<254(字节)，只占1字节（uint8）。
+ * 长度>=254，需要5字节。第一个字节设置为254(FE)表示：用剩下的4个字节存放prevlen。
  *
- * So practically an entry is encoded in the following way:
- *
+ * 所以实际上一个节点是按以下方式存放prevlen：
  * <prevlen from 0 to 253> <encoding> <entry>
  *
- * Or alternatively if the previous entry length is greater than 253 bytes
- * the following encoding is used:
- *
+ * 或者，如果前一个节点长度大于 253 字节，则使用以下方式存放prevlen：
  * 0xFE <4 bytes unsigned little endian prevlen> <encoding> <entry>
  *
- * The encoding field of the entry depends on the content of the
- * entry. When the entry is a string, the first 2 bits of the encoding first
- * byte will hold the type of encoding used to store the length of the string,
- * followed by the actual length of the string. When the entry is an integer
- * the first 2 bits are both set to 1. The following 2 bits are used to specify
- * what kind of integer will be stored after this header. An overview of the
- * different types and encodings is as follows. The first byte is always enough
- * to determine the kind of entry.
+ * 节点的encoding字段取决于节点的内容。
+ * 当节点是字符串时，encoding第一个字节的前2位表示: 存储字符串长度的编码类型，然后是字符串的实际长度。
+ * 当节点是整数时，前2位都设置为1。接下来的2位表示存储哪种整数。不同类型和编码的概述如下（第一个字节总是足以确定节点的类型）
  *
  * |00pppppp| - 1 byte
- *      String value with length less than or equal to 63 bytes (6 bits).
- *      "pppppp" represents the unsigned 6 bit length.
+ *      长度<=63字节（6bit）的字符串。(“pppppp”表示无符号的6bit长度。)
  * |01pppppp|qqqqqqqq| - 2 bytes
- *      String value with length less than or equal to 16383 bytes (14 bits).
- *      IMPORTANT: The 14 bit number is stored in big endian.
+ *      长度<=16383字节（14bit）的字符串。(重要提示：14bit数字以大端方式存储。)
  * |10000000|qqqqqqqq|rrrrrrrr|ssssssss|tttttttt| - 5 bytes
- *      String value with length greater than or equal to 16384 bytes.
- *      Only the 4 bytes following the first byte represents the length
- *      up to 32^2-1. The 6 lower bits of the first byte are not used and
- *      are set to zero.
- *      IMPORTANT: The 32 bit number is stored in big endian.
+ *      长度>=16384字节的字符串。只有第一个字节后面的4个字节表示最大长度为 32^2-1。
+ *      第一个字节的低6位未使用并设置为零。(重要提示：32bit数字以大端序存储。)
+
  * |11000000| - 3 bytes
  *      Integer encoded as int16_t (2 bytes).
  * |11010000| - 5 bytes
@@ -90,54 +75,37 @@
  *      Integer encoded as 24 bit signed (3 bytes).
  * |11111110| - 2 bytes
  *      Integer encoded as 8 bit signed (1 byte).
- * |1111xxxx| - (with xxxx between 0000 and 1101) immediate 4 bit integer.
- *      Unsigned integer from 0 to 12. The encoded value is actually from
- *      1 to 13 because 0000 and 1111 can not be used, so 1 should be
- *      subtracted from the encoded 4 bit value to obtain the right value.
- * |11111111| - End of ziplist special entry.
+ * |1111xxxx| - （xxxx 介于 0000 和 1101 之间）立即4位整数。 0 到 12 的无符号整数。[立即数]
+ *              编码后的值实际上是 1 到 13，因为 0000 和 1111 不能使用，所以应该从编码后的 4 位值中减去 1 以获得正确的值。
+ * |11111111| - 用于表示ziplist结尾的特殊节点。
  *
- * Like for the ziplist header, all the integers are represented in little
- * endian byte order, even when this code is compiled in big endian systems.
+ * 与 ziplist 标头一样，所有整数都以小端字节顺序表示，即使此代码在大端系统中编译也是如此。
  *
  * EXAMPLES OF ACTUAL ZIPLISTS
  * ===========================
  *
- * The following is a ziplist containing the two elements representing
- * the strings "2" and "5". It is composed of 15 bytes, that we visually
- * split into sections:
+ * 下面是一个 ziplist，其中包含表示字符串“2”和“5”的两个元素。它由 15 个字节组成
  *
  *  [0f 00 00 00] [0c 00 00 00] [02 00] [00 f3] [02 f6] [ff]
  *        |             |          |       |       |     |
  *     zlbytes        zltail    entries   "2"     "5"   end
  *
- * The first 4 bytes represent the number 15, that is the number of bytes
- * the whole ziplist is composed of. The second 4 bytes are the offset
- * at which the last ziplist entry is found, that is 12, in fact the
- * last entry, that is "5", is at offset 12 inside the ziplist.
- * The next 16 bit integer represents the number of elements inside the
- * ziplist, its value is 2 since there are just two elements inside.
- * Finally "00 f3" is the first entry representing the number 2. It is
- * composed of the previous entry length, which is zero because this is
- * our first entry, and the byte F3 which corresponds to the encoding
- * |1111xxxx| with xxxx between 0001 and 1101. We need to remove the "F"
- * higher order bits 1111, and subtract 1 from the "3", so the entry value
- * is "2". The next entry has a prevlen of 02, since the first entry is
- * composed of exactly two bytes. The entry itself, F6, is encoded exactly
- * like the first entry, and 6-1 = 5, so the value of the entry is 5.
- * Finally the special entry FF signals the end of the ziplist.
+ * 前4个字节代表数字15，即整个ziplist的字节总数。第二个4字节是找到最后一个节点的偏移量，即12，实际上最后一个节点，即“5”这个节点，
+ * 下一个2字节整数表示ziplist中的元素数量，它的值为2，因为里面只有两个元素。最后“00 f3”是代表数字2的第一个节点。
+ * 它由前一个节点长度（为零，因为这是我们的第一个节点）和对应于编码|1111xxxx|的字节F3组成。 xxxx 介于 0001 和 1101 之间。
+ * 我们需要去掉“F”高位 1111，并从“3”中减去 1，因此节点值为“2”。
+ * 下一个节点的 prevlen 为 02，因为第一个节点正好由两个字节组成。
+ * 节点本身F6的编码与第一个节点完全相同，并且 6-1 = 5，因此节点的值为 5。
+ * 最后，特殊节点 FF 表示 ziplist 的结束。
  *
- * Adding another element to the above string with the value "Hello World"
- * allows us to show how the ziplist encodes small strings. We'll just show
- * the hex dump of the entry itself. Imagine the bytes as following the
- * entry that stores "5" in the ziplist above:
+  在上面的字符串中添加另一个元素，其值为“Hello World”，我们可以展示 ziplist 如何对小字符串进行编码。
+  我们将只显示节点本身的十六进制转储。想象一下在上面的 ziplist 中存储“5”的节点之后的字节：
  *
  * [02] [0b] [48 65 6c 6c 6f 20 57 6f 72 6c 64]
  *
- * The first byte, 02, is the length of the previous entry. The next
- * byte represents the encoding in the pattern |00pppppp| that means
- * that the entry is a string of length <pppppp>, so 0B means that
- * an 11 bytes string follows. From the third byte (48) to the last (64)
- * there are just the ASCII characters for "Hello World".
+ * 第一个字节 02 是前一个节点的长度。下一个字节表示模式 |00pppppp| 中的编码。
+ * 这意味着该节点是一个长度为 <pppppp> 的字符串，因此 0B 表示后面跟着一个 11 字节的字符串。
+ * 从第三个字节 (48) 到最后一个字节 (64)，只有“Hello World”的 ASCII 字符。
  *
  * ----------------------------------------------------------------------------
  *

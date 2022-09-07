@@ -28,6 +28,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://www.cnblogs.com/hunternet/p/11306690.html
+
 #ifndef _ZIPLIST_H
 #define _ZIPLIST_H
 
