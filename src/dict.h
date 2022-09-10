@@ -1,9 +1,7 @@
 /* Hash Tables Implementation.
  *
- * This file implements in-memory hash tables with insert/del/replace/find/
- * get-random-element operations. Hash tables will auto-resize if needed
- * tables of power of two in size are used, collisions are handled by
- * chaining. See the source code for more information... :)
+ * 此文件使用 insertdelreplacefind 获取随机元素操作实现内存中的哈希表。
+ * 如果需要使用大小为 2的次幂 的表，哈希表将自动调整大小，通过链接处理冲突。有关更多信息，请参阅源代码... :)
  *
  * Copyright (c) 2006-2012, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
@@ -41,9 +39,11 @@
 #define DICT_OK 0
 #define DICT_ERR 1
 
-/* Unused arguments generate annoying warnings... */
+/* 未使用的参数会产生烦人的警告... */
 #define DICT_NOTUSED(V) ((void) V)
 
+//hash表简单理解就是数组，每个槽位存放节点(或单链表，如果有冲突)，如下就是节点结构{K,V,Next}
+//union: http://c.biancheng.net/view/2035.html
 typedef struct dictEntry {
     void *key;
     union {
@@ -55,36 +55,36 @@ typedef struct dictEntry {
     struct dictEntry *next;
 } dictEntry;
 
+//字典相关的函数指针
 typedef struct dictType {
-    uint64_t (*hashFunction)(const void *key);
-    void *(*keyDup)(void *privdata, const void *key);
-    void *(*valDup)(void *privdata, const void *obj);
-    int (*keyCompare)(void *privdata, const void *key1, const void *key2);
-    void (*keyDestructor)(void *privdata, void *key);
-    void (*valDestructor)(void *privdata, void *obj);
+    uint64_t (*hashFunction)(const void *key); //散列函数
+    void *(*keyDup)(void *privdata, const void *key); //键复制
+    void *(*valDup)(void *privdata, const void *obj); //值复制
+    int (*keyCompare)(void *privdata, const void *key1, const void *key2); //键比较
+    void (*keyDestructor)(void *privdata, void *key); //键销毁
+    void (*valDestructor)(void *privdata, void *obj); //值销毁
 } dictType;
 
-/* This is our hash table structure. Every dictionary has two of this as we
- * implement incremental rehashing, for the old to the new table. */
-typedef struct dictht {
-    dictEntry **table;
-    unsigned long size;
-    unsigned long sizemask;
-    unsigned long used;
+/* 哈希表结构。在我们实现增量incremental rehashing时，每个字典都有两个，用于旧表到新表。 */
+typedef struct dictht { // 4*8 = 32(byte)
+    dictEntry **table; //节点指针数组：(dictEntry *) table[]
+    unsigned long size; //hash表底层数组总长度
+    unsigned long sizemask; //总长度掩码，根据key的hash值 & sizemask，快速算出key放置槽位（用更快的位运算代替求余）
+    unsigned long used; //hash表中节点个数（包含冲突拉链长度）
 } dictht;
 
-typedef struct dict {
-    dictType *type;
-    void *privdata;
-    dictht ht[2];
-    long rehashidx; /* rehashing not in progress if rehashidx == -1 */
-    unsigned long iterators; /* number of iterators currently running */
+//真正对外暴露的字典结构
+typedef struct dict { // 4*8 = 32(byte) + 2*32 = 64(byte) => 96(byte)
+    dictType *type; //todo 根据不同的字典类型，有不同的字典相关函数？
+    void *privdata; //私有数据 todo 干啥的？
+    dictht ht[2]; //0号和1号hash表
+    long rehashidx; /* -1则没有rehash todo 这里为啥不用bool, 而是long, 因为正在rehash时还要用来记录当前rehash的index */
+    unsigned long iterators; /* 当前运行的安全迭代器数量，todo 安全：保证迭代的正确性？ */
 } dict;
 
-/* If safe is set to 1 this is a safe iterator, that means, you can call
- * dictAdd, dictFind, and other functions against the dictionary even while
- * iterating. Otherwise it is a non safe iterator, and only dictNext()
- * should be called while iterating. */
+/* 如果 safe 设置为 1，这是一个安全的迭代器，这意味着即使在迭代时，
+ * 您也可以针对字典调用 dictAdd、dictFind 和其他函数。
+ * 否则它是一个不安全的迭代器，迭代时只应该调用 dictNext() 。 */
 typedef struct dictIterator {
     dict *d;
     long index;
@@ -97,7 +97,7 @@ typedef struct dictIterator {
 typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 
-/* This is the initial size of every hash table */
+/* 哈希表的初始大小：4 */
 #define DICT_HT_INITIAL_SIZE     4
 
 /* ------------------------------- Macros ------------------------------------*/
