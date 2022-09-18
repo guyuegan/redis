@@ -453,6 +453,7 @@ typedef long long ustime_t; /* microsecond time type. */
  * The actual resolution depends on server.hz. */
 #define run_with_period(_ms_) if ((_ms_ <= 1000/server.hz) || !(server.cronloops%((_ms_)/(1000/server.hz))))
 
+// todo 很骚气的宏，有空研究下
 /* We can print the stacktrace, so our assert is defined this way: */
 #define serverAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_serverAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),_exit(1)))
 #define serverAssert(_e) ((_e)?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),_exit(1)))
@@ -613,6 +614,7 @@ typedef struct RedisModuleDigest {
 #define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
 
 #define OBJ_SHARED_REFCOUNT INT_MAX
+//一个redisObject需要16byte内存：4byte(4bit+4bit+24bit) + 4byte + 8byte
 typedef struct redisObject {
     unsigned type:4;
     unsigned encoding:4;
@@ -1205,8 +1207,8 @@ struct redisServer {
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
     /* Limits */
     unsigned int maxclients;            /* Max number of simultaneous clients */
-    unsigned long long maxmemory;   /* Max number of memory bytes to use */
-    int maxmemory_policy;           /* Policy for key eviction */
+    unsigned long long maxmemory;   /* 要使用的最大内存字节数 */
+    int maxmemory_policy;           /* key淘汰策略 */
     int maxmemory_samples;          /* Pricision of random sampling */
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
     int lfu_decay_time;             /* LFU counter decay factor. */
@@ -1312,7 +1314,7 @@ typedef struct pubsubPattern {
     robj *pattern;
 } pubsubPattern;
 
-typedef void redisCommandProc(client *c);
+typedef void redisCommandProc(client *c); //todo 这种是啥定义
 typedef int *redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 struct redisCommand {
     char *name;

@@ -76,59 +76,46 @@ double R_Zero, R_PosInf, R_NegInf, R_Nan;
 struct redisServer server; /* Server global state */
 volatile unsigned long lru_clock; /* Server global current LRU time. */
 
-/* Our command table.
+/* 命令表
  *
- * Every entry is composed of the following fields:
+ * 每个条目都由以下字段组成：
  *
- * name: a string representing the command name.
- * function: pointer to the C function implementing the command.
- * arity: number of arguments, it is possible to use -N to say >= N
- * sflags: command flags as string. See below for a table of flags.
- * flags: flags as bitmask. Computed by Redis using the 'sflags' field.
- * get_keys_proc: an optional function to get key arguments from a command.
- *                This is only used when the following three fields are not
- *                enough to specify what arguments are keys.
- * first_key_index: first argument that is a key
- * last_key_index: last argument that is a key
- * key_step: step to get all the keys from first to last argument. For instance
- *           in MSET the step is two since arguments are key,val,key,val,...
- * microseconds: microseconds of total execution time for this command.
- * calls: total number of calls of this command.
+ * name: 命令名称
+ * function: 指向实现该命令的 C 函数的指针
+ * arity: 参数数量，可以使用 -N 表示 >= N
+ * sflags: 字符串类型命令选项。请参阅下面的标志表
+ * flags: bitmap类型命令选项。由 Redis 使用 'sflags' 字段计算
+ * get_keys_proc: 从命令中获取关键参数的可选函数。这仅在以下三个字段不足以指定哪些参数是键时使用
+ * first_key_index: 第一个参数是键
+ * last_key_index: 最后一个参数是键
+ * key_step: step以获取从第一个参数到最后一个参数的所有键。例如，在 MSET 中，step是两个，因为参数是 key,val,key,val,..
+ * microseconds: 此命令的总执行时间(微秒)
+ * calls: 该命令的总调用次数
  *
- * The flags, microseconds and calls fields are computed by Redis and should
- * always be set to zero.
+ * flags, microseconds 和 calls 字段由 Redis 计算，应始终设置为零
  *
- * Command flags are expressed using strings where every character represents
- * a flag. Later the populateCommandTable() function will take care of
- * populating the real 'flags' field using this characters.
+ * 命令标志使用字符串表示，其中每个字符代表一个标志。稍后，populateCommandTable() 函数将负责使用这些字符填充真正的“flags”字段
  *
- * This is the meaning of the flags:
+ * 这是标志的含义：
  *
- * w: write command (may modify the key space).
- * r: read command  (will never modify the key space).
- * m: may increase memory usage once called. Don't allow if out of memory.
- * a: admin command, like SAVE or SHUTDOWN.
- * p: Pub/Sub related command.
- * f: force replication of this command, regardless of server.dirty.
- * s: command not allowed in scripts.
- * R: random command. Command is not deterministic, that is, the same command
- *    with the same arguments, with the same key space, may have different
- *    results. For instance SPOP and RANDOMKEY are two random commands.
- * S: Sort command output array if called from script, so that the output
- *    is deterministic.
- * l: Allow command while loading the database.
+ * w: 写命令（可能修改key空间）。
+ * r: 读命令（永远不会修改key空间）。
+ * m: 一旦调用可能会增加内存使用量。如果内存不足，请不要允许。//修改命令？
+ * a: 管理命令，例如 SAVE 或 SHUTDOWN。
+ * p: PubSub 相关命令。
+ * f: 强制复制此命令，而不考虑 server.dirty。//todo what?
+ * s: 脚本中不允许的命令。
+ * R: 随机命令。命令不是确定性的，即相同的命令具有相同的参数，具有相同的键空间，可能有不同的结果。例如 SPOP 和 RANDOMKEY 是两个随机命令。
+ * S: 如果从脚本调用，排序命令输出数组，以便输出是确定性的。
+ * l: 加载数据库时允许命令。
  * t: Allow command while a slave has stale data but is not allowed to
  *    server this data. Normally no command is accepted in this condition
- *    but just a few.
- * M: Do not automatically propagate the command on MONITOR.
- * k: Perform an implicit ASKING for this command, so the command will be
- *    accepted in cluster mode if the slot is marked as 'importing'.
- * F: Fast command: O(1) or O(log(N)) command that should never delay
- *    its execution as long as the kernel scheduler is giving us time.
- *    Note that commands that may trigger a DEL as a side effect (like SET)
- *    are not fast commands.
+ *    but just a few. // todo what
+ * M: 不要在 MONITOR 上自动传播命令。
+ * k: 对此命令执行隐式 ASKING，因此如果插槽标记为“正在导入”，则该命令将在集群模式下被接受。
+ * F: 快速命令：O(1) 或 O(log(N)) 命令，只要内核调度程序给我们时间，就不应延迟其执行。请注意，可能触发 DEL 作为副作用的命令（如 SET）不是快速命令。
  */
-struct redisCommand redisCommandTable[] = {
+struct redisCommand redisCommandTable[] = { //200个命令
     {"module",moduleCommand,-2,"as",0,NULL,0,0,0,0,0},
     {"get",getCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"set",setCommand,-3,"wm",0,NULL,1,1,1,0,0},

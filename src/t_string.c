@@ -62,8 +62,8 @@ static int checkStringLength(client *c, long long size) {
 #define OBJ_SET_NO_FLAGS 0
 #define OBJ_SET_NX (1<<0)     /* Set if key not exists. */
 #define OBJ_SET_XX (1<<1)     /* Set if key exists. */
-#define OBJ_SET_EX (1<<2)     /* Set if time in seconds is given */
-#define OBJ_SET_PX (1<<3)     /* Set if time in ms in given */
+#define OBJ_SET_EX (1<<2)     /* Set if time in 秒 is given */
+#define OBJ_SET_PX (1<<3)     /* Set if time in 毫秒 in given */
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
@@ -100,38 +100,40 @@ void setCommand(client *c) {
     int unit = UNIT_SECONDS;
     int flags = OBJ_SET_NO_FLAGS;
 
+    //0,1,2是：SET key value，3开始才是参数
     for (j = 3; j < c->argc; j++) {
-        char *a = c->argv[j]->ptr;
-        robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
+        char *a = c->argv[j]->ptr; //当前参数的值
+        robj *next = (j == c->argc-1) ? NULL : c->argv[j+1]; //下一个参数的robj
 
+        //从解析手法看，命令参数大小写不敏感（并且参数之间顺序无所谓，因为每个参数都是一样解析流程）
         if ((a[0] == 'n' || a[0] == 'N') &&
             (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
             !(flags & OBJ_SET_XX))
         {
-            flags |= OBJ_SET_NX;
+            flags |= OBJ_SET_NX; //参数是“NX”且flags中代表“XX”的位为false, flags代表“NX”的位置为true
         } else if ((a[0] == 'x' || a[0] == 'X') &&
                    (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
                    !(flags & OBJ_SET_NX))
         {
-            flags |= OBJ_SET_XX;
+            flags |= OBJ_SET_XX; //参数是“XX”且flags中代表“NX”的位为false, flags代表“XX”的位置为true
         } else if ((a[0] == 'e' || a[0] == 'E') &&
                    (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
                    !(flags & OBJ_SET_PX) && next)
         {
-            flags |= OBJ_SET_EX;
-            unit = UNIT_SECONDS;
-            expire = next;
-            j++;
+            flags |= OBJ_SET_EX; //参数是“EX”且flags中代表“PX”的位为false, flags代表“EX”的位置为true
+            unit = UNIT_SECONDS; //单位秒
+            expire = next; //时长robj
+            j++; //跳过时长robj参数
         } else if ((a[0] == 'p' || a[0] == 'P') &&
                    (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
                    !(flags & OBJ_SET_EX) && next)
         {
-            flags |= OBJ_SET_PX;
+            flags |= OBJ_SET_PX; //参数是“PX”且flags中代表“EX”的位为false, flags代表“PX”的位置为true
             unit = UNIT_MILLISECONDS;
             expire = next;
             j++;
         } else {
-            addReply(c,shared.syntaxerr);
+            addReply(c,shared.syntaxerr); //语法错误
             return;
         }
     }

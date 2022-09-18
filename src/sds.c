@@ -308,7 +308,7 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     return s;
 }
 
-/* 重新分配 sds 字符串，使其末尾没有可用空间。包含的字符串保持不变，但接下来的连接操作将需要重新分配。(收缩空间)
+/* 重新分配 sds 字符串，使其末尾没有可用空间。包含的字符串保持不变，但接下来的字符串append将需要重新分配。(收缩空间)
  * 调用后，传递的 sds 字符串不再有效，所有引用都必须替换为调用返回的新指针。*/
 sds sdsRemoveFreeSpace(sds s) {
     void *sh, *newsh;

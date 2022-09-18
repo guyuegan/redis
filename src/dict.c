@@ -294,24 +294,21 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
     return entry;
 }
 
-/* Add or Overwrite:
- * Add an element, discarding the old value if the key already exists.
- * Return 1 if the key was added from scratch, 0 if there was already an
- * element with such key and dictReplace() just performed a value update
- * operation. */
+// 添加或覆盖：添加一个元素，如果键已经存在则丢弃旧值。 如果键是新加的返回1，
+// 如果已经存在具有该键的元素并且 dictReplace() 刚刚执行了值更新操作，则返回 0。
 int dictReplace(dict *d, void *key, void *val)
 {
     dictEntry *entry, *existing, auxentry;
 
-    /* Try to add the element. If the key
-     * does not exists dictAdd will succeed. */
+    /* 尝试添加元素。如果键不存在 dictAdd 将成功。*/
     entry = dictAddRaw(d,key,&existing);
     if (entry) {
         dictSetVal(d, entry, val);
         return 1;
     }
 
-    /* Set the new value and free the old one. Note that it is important
+    // todo 啥意思？
+    /* 设置新值并释放旧值。 Note that it is important
      * to do that in this order, as the value may just be exactly the same
      * as the previous one. In this context, think to reference counting,
      * you want to increment (set), and then decrement (free), and not the
@@ -322,30 +319,25 @@ int dictReplace(dict *d, void *key, void *val)
     return 0;
 }
 
-/* Add or Find:
- * dictAddOrFind() is simply a version of dictAddRaw() that always
- * returns the hash entry of the specified key, even if the key already
- * exists and can't be added (in that case the entry of the already
- * existing key is returned.)
- *
- * See dictAddRaw() for more information. */
+/*
+ * 添加或查找：dictAddOrFind() 只是对 dictAddRaw() 的简单包装，它总是返回指定键的entry，
+ * 即使键已经存在并且无法添加（在这种情况下，返回已经存在的键的entry。）
+ */
 dictEntry *dictAddOrFind(dict *d, void *key) {
     dictEntry *entry, *existing;
     entry = dictAddRaw(d,key,&existing);
     return entry ? entry : existing;
 }
 
-/* Search and remove an element. This is an helper function for
- * dictDelete() and dictUnlink(), please check the top comment
- * of those functions. */
+/* 搜索并删除元素。这是 dictDelete() 和 dictUnlink() 的辅助函数，请查看这些函数的顶部注释。 */
 static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     uint64_t h, idx;
     dictEntry *he, *prevHe;
     int table;
 
-    if (d->ht[0].used == 0 && d->ht[1].used == 0) return NULL;
+    if (d->ht[0].used == 0 && d->ht[1].used == 0) return NULL; //两个hash表都空，直接返回NULL
 
-    if (dictIsRehashing(d)) _dictRehashStep(d);
+    if (dictIsRehashing(d)) _dictRehashStep(d); //删除也要帮忙分摊，rehash的槽位搬迁工作
     h = dictHashKey(d, key);
 
     for (table = 0; table <= 1; table++) {
@@ -354,10 +346,10 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
         prevHe = NULL;
         while(he) {
             if (key==he->key || dictCompareKeys(d, key, he->key)) {
-                /* Unlink the element from the list */
+                /* 从列表中unlink元素 */
                 if (prevHe)
                     prevHe->next = he->next;
-                else
+                else //前一个元素是NULL，则说明删除的是头，直接用当前元素next作为新的链表头
                     d->ht[table].table[idx] = he->next;
                 if (!nofree) {
                     dictFreeKey(d, he);
@@ -365,7 +357,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
                     zfree(he);
                 }
                 d->ht[table].used--;
-                return he;
+                return he; //返回删除元素
             }
             prevHe = he;
             he = he->next;
@@ -375,28 +367,21 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     return NULL; /* not found */
 }
 
-/* Remove an element, returning DICT_OK on success or DICT_ERR if the
- * element was not found. */
+/*删除一个元素，成功返回 DICT_OK，如果未找到该元素则返回 DICT_ERR。 */
 int dictDelete(dict *ht, const void *key) {
     return dictGenericDelete(ht,key,0) ? DICT_OK : DICT_ERR;
 }
 
-/* Remove an element from the table, but without actually releasing
- * the key, value and dictionary entry. The dictionary entry is returned
- * if the element was found (and unlinked from the table), and the user
- * should later call `dictFreeUnlinkedEntry()` with it in order to release it.
- * Otherwise if the key is not found, NULL is returned.
+/* 从表中删除一个元素，但不真正释放键、值和字典条目。如果找到该元素（并从表中unlink），则返回字典条目，
+ * 用户稍后should调用 `dictFreeUnlinkedEntry()` 以释放它。如果找不到键，则返回 NULL。
  *
- * This function is useful when we want to remove something from the hash
- * table but want to use its value before actually deleting the entry.
- * Without this function the pattern would require two lookups:
+ * 当我们想从哈希表中删除一些东西, 但想在实际删除之前使用它的值时，这个函数很有用。如果没有这个函数，模式将需要两次查找：
  *
  *  entry = dictFind(...);
  *  // Do something with entry
  *  dictDelete(dictionary,entry);
  *
- * Thanks to this function it is possible to avoid this, and use
- * instead:
+ * 由于此功能，可以避免这种情况，并改用：
  *
  * entry = dictUnlink(dictionary,entry);
  * // Do something with entry
@@ -406,8 +391,7 @@ dictEntry *dictUnlink(dict *ht, const void *key) {
     return dictGenericDelete(ht,key,1);
 }
 
-/* You need to call this function to really free the entry after a call
- * to dictUnlink(). It's safe to call this function with 'he' = NULL. */
+/* 在调用 dictUnlink() 后，您需要调用此函数才能真正释放条目。使用 'he' = NULL 确保调用此函数是安全的。 */
 void dictFreeUnlinkedEntry(dict *d, dictEntry *he) {
     if (he == NULL) return;
     dictFreeKey(d, he);
@@ -450,6 +434,7 @@ void dictRelease(dict *d)
     zfree(d);
 }
 
+//先定位到槽，再遍历槽里的链表，找到直接返回；如果正在rehash，则1号hash表重复前面操作
 dictEntry *dictFind(dict *d, const void *key)
 {
     dictEntry *he;
@@ -471,6 +456,7 @@ dictEntry *dictFind(dict *d, const void *key)
     return NULL;
 }
 
+// 根据key查找val: 返回void*, 兼容各种类型的value
 void *dictFetchValue(dict *d, const void *key) {
     dictEntry *he;
 
@@ -582,8 +568,7 @@ void dictReleaseIterator(dictIterator *iter)
     zfree(iter);
 }
 
-/* Return a random entry from the hash table. Useful to
- * implement randomized algorithms */
+/* 从哈希表中返回一个随机条目。用于实现随机算法 */
 dictEntry *dictGetRandomKey(dict *d)
 {
     dictEntry *he, *orighe;

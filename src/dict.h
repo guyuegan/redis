@@ -105,6 +105,7 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
     if ((d)->type->valDestructor) \
         (d)->type->valDestructor((d)->privdata, (entry)->v.val)
 
+// todo 为啥要do while
 #define dictSetVal(d, entry, _val_) do { \
     if ((d)->type->valDup) \
         (entry)->v.val = (d)->type->valDup((d)->privdata, _val_); \

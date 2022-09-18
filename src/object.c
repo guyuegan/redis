@@ -78,16 +78,15 @@ robj *createRawStringObject(const char *ptr, size_t len) {
     return createObject(OBJ_STRING, sdsnewlen(ptr,len));
 }
 
-/* Create a string object with encoding OBJ_ENCODING_EMBSTR, that is
- * an object where the sds string is actually an unmodifiable string
- * allocated in the same chunk as the object itself. */
+/* 创建一个编码为 OBJ_ENCODING_EMBSTR 的字符串对象，
+ * 这是一个对象，其中 sds 字符串实际上是一个不可修改的字符串，分配在与对象本身相同的块中。 */
 robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
-    struct sdshdr8 *sh = (void*)(o+1);
+    struct sdshdr8 *sh = (void*)(o+1); //todo o+1: 移动一个robj的空间大小？指向sdshdr8起始位置
 
     o->type = OBJ_STRING;
     o->encoding = OBJ_ENCODING_EMBSTR;
-    o->ptr = sh+1;
+    o->ptr = sh+1; //todo sh+1: 移动一个sdshdr8的空间大小？ 指向柔性数组buf
     o->refcount = 1;
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
@@ -109,12 +108,12 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     return o;
 }
 
-/* Create a string object with EMBSTR encoding if it is smaller than
- * OBJ_ENCODING_EMBSTR_SIZE_LIMIT, otherwise the RAW encoding is
- * used.
- *
- * The current limit of 44 is chosen so that the biggest string object
- * we allocate as EMBSTR will still fit into the 64 byte arena of jemalloc. */
+//todo 为啥embstr最长支持44字符(44超过sdshdr5长度上限，采用sdshdr8)，因为一个缓存行64byte，要充分利用缓存，就要sds刚好是64byte(一次malloc搞定)，即：
+//64字节，减去robj头信息16字节，再减去3字节sdshdr8头信息，再减去固定1字节的结尾'\0'。 这样最后可以存储44字节。
+// 所以　embstr　形式，可以存储最大字符串长度是44字节。
+
+/* 如果小于OBJ_ENCODING_EMBSTR_SIZE_LIMIT，则使用 EMBSTR 编码创建字符串对象，否则使用 RAW 编码。
+ * 当前限制之所以是44，以便我们分配为 EMBSTR 的最大字符串对象仍然适合 jemalloc 的 64 字节区域。 */
 #define OBJ_ENCODING_EMBSTR_SIZE_LIMIT 44
 robj *createStringObject(const char *ptr, size_t len) {
     if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT)
@@ -415,53 +414,40 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
     }
 }
 
-/* Optimize the SDS string inside the string object to require little space,
- * in case there is more than 10% of free space at the end of the SDS
- * string. This happens because SDS strings tend to overallocate to avoid
- * wasting too much time in allocations when appending to the string. */
+/* 优化字符串对象内部的 SDS 字符串，使其占用更少的空间，以防 SDS 字符串末尾有超过 10% 的可用空间。
+ * 发生这种情况是因为SDS 字符串采用预分配，以避免字符串append时出现重新分配中浪费太多时间。*/
 void trimStringObjectIfNeeded(robj *o) {
     if (o->encoding == OBJ_ENCODING_RAW &&
-        sdsavail(o->ptr) > sdslen(o->ptr)/10)
+        sdsavail(o->ptr) > sdslen(o->ptr)/10) //sds剩余空间（申请总量-当前长度） > 当前长度 1/10
     {
         o->ptr = sdsRemoveFreeSpace(o->ptr);
     }
 }
 
-/* Try to encode a string object in order to save space */
+/* 尝试对字符串对象进行编码以节省空间 */
 robj *tryObjectEncoding(robj *o) {
     long value;
     sds s = o->ptr;
     size_t len;
 
-    /* Make sure this is a string object, the only type we encode
-     * in this function. Other types use encoded memory efficient
-     * representations but are handled by the commands implementing
-     * the type. */
+    /* 确保这是一个字符串对象，这是我们在这个函数中编码的唯一类型。其他类型使用编码的内存高效表示，但由实现该类型的命令处理。 */
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
 
-    /* We try some specialized encoding only for objects that are
-     * RAW or EMBSTR encoded, in other words objects that are still
-     * in represented by an actually array of chars. */
+    /*我们只对 RAW 或 EMBSTR 编码的对象尝试一些专门的编码，换句话说，仍然由实际的字符数组表示的对象。 */
     if (!sdsEncodedObject(o)) return o;
 
-    /* It's not safe to encode shared objects: shared objects can be shared
-     * everywhere in the "object space" of Redis and may end in places where
-     * they are not handled. We handle them only as values in the keyspace. */
+    /* 对共享对象进行编码是不安全的：共享对象可以在 Redis 的“对象空间”中的任何地方共享，并且可能在它们未被处理的地方结束。我们仅将它们作为键空间中的值处理。*/
      if (o->refcount > 1) return o;
 
-    /* Check if we can represent this string as a long integer.
-     * Note that we are sure that a string larger than 20 chars is not
-     * representable as a 32 nor 64 bit integer. */
+    /* 检查我们是否可以将此字符串表示为长整数。请注意，我们确信大于 20 个字符的字符串不能表示为 32 位或 64 位整数。 */
     len = sdslen(s);
     if (len <= 20 && string2l(s,len,&value)) {
-        /* This object is encodable as a long. Try to use a shared object.
-         * Note that we avoid using shared integers when maxmemory is used
-         * because every object needs to have a private LRU field for the LRU
-         * algorithm to work well. */
+        /* 该对象可编码为 long。尝试使用共享对象。请注意，当使用 maxmemory 时，
+         * 我们避免使用共享整数，因为每个对象都需要有一个私有 LRU 字段才能使 LRU 算法正常工作。 */
         if ((server.maxmemory == 0 ||
             !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS)) &&
             value >= 0 &&
-            value < OBJ_SHARED_INTEGERS)
+            value < OBJ_SHARED_INTEGERS) //OBJ_SHARED_INTEGERS 10000
         {
             decrRefCount(o);
             incrRefCount(shared.integers[value]);
@@ -479,11 +465,9 @@ robj *tryObjectEncoding(robj *o) {
         }
     }
 
-    /* If the string is small and is still RAW encoded,
-     * try the EMBSTR encoding which is more efficient.
-     * In this representation the object and the SDS string are allocated
-     * in the same chunk of memory to save space and cache misses. */
-    if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT) {
+    /* 如果字符串很小并且仍然是 RAW 编码，请尝试更有效的 EMBSTR 编码。
+     * 在这种表示中，对象和 SDS 字符串被分配在同一块内存中，以节省空间和 cache misses. */
+    if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT) { //44
         robj *emb;
 
         if (o->encoding == OBJ_ENCODING_EMBSTR) return o;
@@ -492,16 +476,9 @@ robj *tryObjectEncoding(robj *o) {
         return emb;
     }
 
-    /* We can't encode the object...
-     *
-     * Do the last try, and at least optimize the SDS string inside
-     * the string object to require little space, in case there
-     * is more than 10% of free space at the end of the SDS string.
-     *
-     * We do that only for relatively large strings as this branch
-     * is only entered if the length of the string is greater than
-     * OBJ_ENCODING_EMBSTR_SIZE_LIMIT. */
-    trimStringObjectIfNeeded(o);
+    /* 我们无法对对象进行编码，做最后一次尝试，至少优化字符串对象内部的SDS字符串以减少空间，以防SDS字符串末尾有超过10%的可用空间。
+     * 我们只对相对较大的字符串这样做，因为只有当字符串的长度大于OBJ_ENCODING_EMBSTR_SIZE_LIMIT时才会进入此代码分支。 */
+    trimStringObjectIfNeeded(o); //todo 为啥预分配完还来收缩？
 
     /* Return the original object. */
     return o;
